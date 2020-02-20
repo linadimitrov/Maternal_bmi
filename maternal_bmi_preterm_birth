@@ -1,0 +1,249 @@
+libname final "/home/linavd0/EP850"; 
+run; 
+ 
+*checking number of observations in each; 
+proc contents data=final.ncs_teaching_mompreghealth_v1; 
+run; 
+ 
+proc contents data=final.ncs_teaching_child_v1_1; 
+run; 
+ 
+ 
+*sorting and merging the two datasets; 
+proc sort data=final.ncs_teaching_mompreghealth_v1; by mom_pidx;run; 
+proc sort data=final.ncs_teaching_child_v1_1; by mom_pidx;run; 
+ 
+data final.ep850proj ; 
+merge final.ncs_teaching_mompreghealth_v1 (in=a) final.ncs_teaching_child_v1_1 (in=b); 
+if a and b; 
+by mom_pidx; 
+run; 
+ 
+*checking merged file; 
+proc contents data=final.ep850proj; 
+run; 
+ 
+*checking for missing outcome and exposure; 
+proc freq data=final.ep850proj; 
+tables bmi_cat gestational_age; 
+run; 
+ 
+*making bmi, bmicat, and household income numerical; 
+data final.ep2; 
+set final.ep850proj; 
+if bmi="M" then bmi=""; 
+bmi_nm=input (bmi, 4.1); 
+if bmi_cat="M" then bmi_cat=""; 
+bmi_catnum=input (bmi_cat, 1.0); 
+if household_income="M" then household_income=""; 
+houseincome_num=input (household_income, 1.0); 
+run; 
+ 
+ 
+*temporary dataset to look at missing by BMI_Catnum (new categories) before deleting those 
+with missig outcome and exposure; 
+data totalmissing; 
+set final.ep2; 
+if bmi_catnum in (1,2) then bmi_catnum=1;*normal and underweight; 
+else if bmi_catnum=3 then bmi_catnum=2;*overweight; 
+else if bmi_catnum in (4,5,6) then bmi_catnum=3;*obese class 1 and 2, as well as extremely obese (extremely obese had to be included in this category due to low cell counts; 
+run; 
+ 
+proc freq data=totalmissing; 
+tables mom_age*bmi_catnum/missing norow nopercent; 
+tables mom_ethnicity*bmi_catnum/missing norow nopercent; 
+tables mom_race*bmi_catnum/missing norow nopercent; 
+tables mom_education*bmi_catnum/missing norow nopercent;  
+tables diabetes*bmi_catnum/missing norow nopercent; 
+tables highbp_preg*bmi_catnum/missing norow nopercent; 
+tables houseincome_num*bmi_catnum/missing norow nopercent; 
+run; 
+ 
+libname final "/home/linavd0/EP850"; 
+run; 
+ 
+*deleting missing outcome and exposure; 
+data ep3; 
+set final.ep2; 
+if bmi_catnum=. then delete; 
+*gives 3620; 
+if gestational_age=. then delete; 
+*gives 3563; 
+run; 
+ 
+*checking number of moms after deleting exposure and outcome; 
+data moms; 
+set ep3; 
+if multiple=1 then delete; 
+if siblings=1 then delete; 
+run; 
+ 
+*operationalizing outcome and exposure and categorzing age; 
+data EP4; 
+set ep3; 
+*preterm is <38 wks (<=37 weeks), normal is >=38 wks; 
+if gestationl_age =<3 then preterm=1;*preterm; 
+if gestational_age >3 then preterm=0; *not preterm; 
+*collapsing BMI categories; 
+if bmi_catnum in (1,2) then bmi_catnum=1;*normal and underweight; 
+else if bmi_catnum=3 then bmi_catnum=2;*overweight; 
+else if bmi_catnum in (4,5,6) then bmi_catnum=3;*obese class 1 and 2, as well as extremely obese (extremely obese had to be included in this category due to low cell counts); 
+*categorizing age; 
+if mom_Age=M then mom_agecat=.; 
+else if 17<=mom_age<=24 then mom_agecat=1; 
+else if 25<=mom_age<=29 then mom_agecat=2; 
+else if 30<=mom_age<=34 then mom_agecat=3; 
+else if 35<=mom_age<=44 then mom_agecat=4;*category is collapsed from codebook here due to low per strata frequencies and because geriatric pregnancy considered 35 and older; 
+run; 
+ 
+*checking number missing  and number multiple births before creating complete case; 
+proc means data=ep4 nmiss; 
+var mom_agecat mom_ethnicity mom_race mom_education  
+ diabetes highbp_preg houseincome_num; 
+run; 
+*291 missing values, but this does not include overlap in missing; 
+ 
+proc freq data=ep4; 
+tables mom_agecat*bmi_catnum/missing; 
+tables mom_ethnicity*bmi_catnum/missing; 
+tables mom_race*bmi_catnum/missing; 
+tables mom_education*bmi_catnum/missing; 
+tables houseincome_num*bmi_catnum/missing; 
+tables diabetes*bmi_catnum/missing; 
+tables highbp_preg*bmi_catnum/missing; 
+run; 
+ 
+proc means data=ep4; 
+where multiple=1; 
+var multiple; 
+run; 
+*128 multiple births; 
+ 
+*creating complete case; 
+data EP5; 
+set EP4; 
+if mom_age=. then delete; 
+if mom_ethnicity=. then delete; 
+if mom_race=. then delete; 
+if mom_education=. then delete; 
+if houseincome_num=. then delete; 
+if diabetes=. then delete; 
+if highbp_preg=. then delete; 
+*3563-3301=262, this is number of observations actually deleted,  
+as the 291 missing covariate datapoints don't account for overlapping missing; 
+*deleting multiple births also; 
+if multiple=1 then delete; 
+run; 
+*gives 3,177 (not directly subtracting 128, due to overlap of multiple births 
+and missingness; 
+ 
+ 
+*checking number of moms in complete case; 
+data moms2; 
+set ep5; 
+if siblings=1 then delete; 
+run; 
+ 
+*!!ep5 is the correct dataset to use for all analyses!!; 
+ 
+*descriptive stats for Table 1; 
+proc freq data=EP5; 
+tables mom_agecat*bmi_catnum/norow nocum nopercent; 
+tables mom_ethnicity*bmi_catnum/norow nocum nopercent; 
+tables mom_race*bmi_catnum/norow nocum nopercent; 
+tables mom_education*bmi_catnum/norow nocum nopercent;  
+tables houseincome_num*bmi_catnum/norow nocum nopercent; 
+tables diabetes*bmi_catnum/norow nocum nopercent; 
+tables highbp_preg*bmi_catnum/norow nocum nopercent; 
+run; 
+ 
+proc freq data=ep5; 
+tables bmi_catnum; 
+run; 
+ 
+*preterms by BMIcat for Table 2; 
+proc freq data=ep5; 
+tables bmi_catnum*preterm; 
+ 
+ 
+*crude model; 
+proc logistic data=EP5; 
+class bmi_catnum (ref="1")/param=ref; 
+model preterm(event="1")=bmi_catnum; 
+run; 
+ 
+*change-in estimate approach in a complete case to ID confounders; 
+*step 1; 
+%macro logistic (var); 
+proc logistic data=EP5; 
+class bmi_catnum (param=ref ref="1") &var; 
+model preterm(event="1")=bmi_catnum &var; 
+run; 
+%mend; 
+ 
+%logistic (mom_ethnicity); 
+%logistic (mom_race); 
+%logistic (diabetes); 
+%logistic (highbp_preg); 
+%logistic (mom_agecat); 
+%logistic (houseincome_num); 
+%logistic (mom_education); 
+ 
+*Step 2 adding mom race based on obese OR; 
+%macro logistic (var); 
+proc logistic data=EP5; 
+class bmi_catnum (param=ref ref="1") mom_race (param=ref)  &var; 
+model preterm(event="1")=bmi_catnum mom_race &var; 
+run; 
+%mend; 
+ 
+%logistic (mom_ethnicity); 
+%logistic (diabetes); 
+%logistic (highbp_preg); 
+%logistic (mom_agecat); 
+%logistic (houseincome_num); 
+%logistic (mom_education); 
+ 
+*only race makes it in; 
+ 
+*model adjusting for race; 
+proc logistic data=EP5; 
+class bmi_catnum (ref="1")/param=ref; 
+class mom_race/param=ref; 
+model preterm(event="1")=bmi_catnum mom_race; 
+run; 
+ 
+*stratified analysis (stratified by age category); 
+*17-24; 
+proc logistic data=EP5; 
+where mom_agecat=1; 
+class bmi_catnum (ref="1")/param=ref; 
+class mom_race/param=ref; 
+model preterm(event="1")=bmi_catnum mom_race; 
+run; 
+ 
+*25-29; 
+proc logistic data=EP5; 
+where mom_agecat=2; 
+class bmi_catnum (ref="1")/param=ref; 
+class mom_race/param=ref; 
+model preterm(event="1")=bmi_catnum mom_race; 
+run; 
+ 
+*30-34; 
+proc logistic data=EP5; 
+where mom_agecat=3; 
+class bmi_catnum (ref="1")/param=ref; 
+class mom_race/param=ref; 
+model preterm(event="1")=bmi_catnum mom_race; 
+run; 
+ 
+*35-44; 
+proc logistic data=EP5; 
+where mom_agecat=4; 
+class bmi_catnum (ref="1")/param=ref; 
+class mom_race/param=ref; 
+model preterm(event="1")=bmi_catnum mom_race; 
+run; 
+ 
+
